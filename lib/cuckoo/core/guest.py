@@ -9,12 +9,12 @@ import logging
 import xmlrpclib
 from threading import Timer, Event
 from StringIO import StringIO
-from zipfile import ZipFile, BadZipfile, ZIP_STORED
+from zipfile import ZipFile, ZIP_STORED
 
 from lib.cuckoo.common.config import Config
 from lib.cuckoo.common.exceptions import CuckooGuestError
 from lib.cuckoo.common.constants import *
-from lib.cuckoo.common.utils import TimeoutServer
+from lib.cuckoo.common.utils import TimeoutServer, sanitize_filename
 
 log = logging.getLogger(__name__)
 
@@ -126,6 +126,8 @@ class GuestManager:
         """
         log.info("Starting analysis on guest (id=%s, ip=%s)", self.id, self.ip)
 
+        options["file_name"] = sanitize_filename(options["file_name"])
+
         try:
             # Wait for the agent to respond. This is done to check the
             # availability of the agent and verify that it's ready to receive
@@ -135,7 +137,10 @@ class GuestManager:
             self.upload_analyzer()
             # Give the analysis options to the guest, so it can generate the
             # analysis.conf inside the guest.
-            self.server.add_config(options)
+            try:
+                self.server.add_config(options)
+            except:
+                raise CuckooGuestError("{0}: unable to upload config to analysis machine".format(self.id))
 
             # If the target of the analysis is a file, upload it to the guest.
             if options["category"] == "file":

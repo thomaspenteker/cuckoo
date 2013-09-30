@@ -15,11 +15,15 @@ from lib.cuckoo.common.config import Config
 from lib.cuckoo.common.exceptions import CuckooOperationalError, CuckooCriticalError
 from lib.cuckoo.common.constants import *
 from lib.cuckoo.common.utils import create_folder, Singleton, logtime
-from lib.cuckoo.common.netlog import NetlogParser
+from lib.cuckoo.common.netlog import NetlogParser, BsonParser
 
 log = logging.getLogger(__name__)
 
 BUFSIZE = 16 * 1024
+EXTENSIONS = {
+    NetlogParser: ".raw",
+    BsonParser: ".bson",
+}
 
 class Disconnect(Exception):
     pass
@@ -150,6 +154,8 @@ class Resulthandler(SocketServer.BaseRequestHandler):
 
         if "NETLOG" in buf:
             self.protocol = NetlogParser(self)
+        elif "BSON" in buf:
+            self.protocol = BsonParser(self)
         elif "FILE" in buf:
             self.protocol = FileUpload(self)
         elif "LOG" in buf:
@@ -168,10 +174,10 @@ class Resulthandler(SocketServer.BaseRequestHandler):
         # create all missing folders for this analysis
         self.create_folders()
 
-        # initialize the protocol handler class for this connection
-        self.negotiate_protocol()
-
         try:
+            # initialize the protocol handler class for this connection
+            self.negotiate_protocol()
+
             while True:
                 r = self.protocol.read_next_message()
                 if not r: break
@@ -192,10 +198,10 @@ class Resulthandler(SocketServer.BaseRequestHandler):
 
         # CSV format files are optional
         if self.server.cfg.resultserver.store_csvs:
-            self.logfd = open(os.path.join(self.storagepath, "logs", str(pid) + ".csv"), "w")
+            self.logfd = open(os.path.join(self.storagepath, "logs", str(pid) + ".csv"), "wb")
 
         # Netlog raw format is mandatory (postprocessing)
-        self.rawlogfd = open(os.path.join(self.storagepath, "logs", str(pid) + ".raw"), "w")
+        self.rawlogfd = open(os.path.join(self.storagepath, "logs", str(pid) + EXTENSIONS.get(type(self.protocol), ".raw")), "wb")
         self.rawlogfd.write(self.startbuf)
         self.pid, self.ppid, self.procname = pid, ppid, procname
 
@@ -213,7 +219,7 @@ class Resulthandler(SocketServer.BaseRequestHandler):
         current_time = self.connect_time + datetime.timedelta(0,0, timediff*1000)
         timestring = logtime(current_time)
 
-        argumentstrings = ["{0}->{1}".format(argname, r) for argname, r in arguments]
+        argumentstrings = ["{0}->{1}".format(argname, repr(str(r))[1:-1]) for argname, r in arguments]
 
         if self.logfd:
             print >>self.logfd, ",".join("\"{0}\"".format(i) for i in [timestring, self.pid,
@@ -291,5 +297,5 @@ class LogHandler(object):
 
     def _open(self):
         if os.path.exists(self.logpath):
-            return open(self.logpath, "a")
-        return open(self.logpath, "w")
+            return open(self.logpath, "ab")
+        return open(self.logpath, "wb")

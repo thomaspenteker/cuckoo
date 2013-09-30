@@ -3,15 +3,12 @@
 # See the file 'docs/LICENSE' for copying permission.
 
 import os
-import sys
-import csv
 import logging
 import datetime
-import inspect
 
 from lib.cuckoo.common.abstracts import Processing
-from lib.cuckoo.common.utils import convert_to_printable, logtime
-from lib.cuckoo.common.netlog import NetlogParser
+from lib.cuckoo.common.utils import convert_to_printable, logtime, cleanup_value
+from lib.cuckoo.common.netlog import NetlogParser, BsonParser
 from lib.cuckoo.common.config import Config
 
 log = logging.getLogger(__name__)
@@ -31,14 +28,27 @@ class ParseProcessLog(list):
         self.first_seen = None
         self.calls = self
         self.lastcall = None
+        self.parsecount = 0
 
         if os.path.exists(log_path) and os.stat(log_path).st_size > 0:
             self.parse_first_and_reset()
 
     def parse_first_and_reset(self):
         self.fd = open(self._log_path, "rb")
-        self.parser = NetlogParser(self)
-        self.parser.read_next_message()
+
+        if self._log_path.endswith(".bson"):
+            self.parser = BsonParser(self)
+        elif self._log_path.endswith(".raw"):
+            self.parser = NetlogParser(self)
+        else:
+            self.fd.close()
+            self.fd = None
+            return
+
+        # get the process information from file to determine process id (file names)
+        while not self.process_id:
+            self.parser.read_next_message()
+
         self.fd.seek(0)
 
     def read(self, length):
@@ -48,6 +58,7 @@ class ParseProcessLog(list):
         return buf
 
     def __iter__(self):
+        #import inspect
         #log.debug('iter called by this guy: {0}'.format(inspect.stack()[1]))
         return self
 
@@ -85,8 +96,11 @@ class ParseProcessLog(list):
         return True
 
     def next(self):
+        if not self.fd: raise StopIteration()
+
         x = self.wait_for_lastcall()
         if not x:
+            self.parsecount += 1
             self.fd.seek(0)
             raise StopIteration()
 
@@ -107,15 +121,15 @@ class ParseProcessLog(list):
     def log_thread(self, context, pid):
         pass
 
-    def log_call(self, context, apiname, modulename, arguments):
+    def log_call(self, context, apiname, category, arguments):
         apiindex, status, returnval, tid, timediff = context
 
-        current_time = self.first_seen + datetime.timedelta(0,0, timediff*1000)
+        current_time = self.first_seen + datetime.timedelta(0, 0, timediff*1000)
         timestring = logtime(current_time)
 
         self.lastcall = self._parse([timestring,
                                      tid,
-                                     modulename,
+                                     category,
                                      apiname, 
                                      status,
                                      returnval] + arguments)
@@ -152,7 +166,8 @@ class ParseProcessLog(list):
                 continue
 
             argument["name"] = arg_name
-            argument["value"] = convert_to_printable(str(arg_value)).lstrip("\\??\\")
+
+            argument["value"] = convert_to_printable(cleanup_value(arg_value))
             arguments.append(argument)
 
         call["timestamp"] = timestamp
@@ -164,7 +179,7 @@ class ParseProcessLog(list):
         if isinstance(return_value, int):
             call["return"] = "0x%.08x" % return_value
         else:
-            call["return"] = convert_to_printable(str(return_value))
+            call["return"] = convert_to_printable(cleanup_value(return_value))
 
         call["arguments"] = arguments
         call["repeated"] = 0
@@ -199,9 +214,6 @@ class Processes:
 
             if os.path.isdir(file_path):
                 continue
-            
-            if not file_path.endswith(".raw"):
-                continue
 
             # Skipping the current log file if it's too big.
             if os.stat(file_path).st_size > self.cfg.processing.analysis_size_limit:
@@ -230,188 +242,109 @@ class Processes:
 
 class Summary:
     """Generates summary information."""
+
+    key = "summary"
     
-    def __init__(self, proc_results):
-        """@param oroc_results: enumerated processes results."""
-        self.proc_results = proc_results
+    def __init__(self):
+        self.keys = []
+        self.mutexes = []
+        self.files = []
+        self.handles = []
+
+    def _check_registry(self, registry, subkey, handle):
+        for known_handle in self.handles:
+            if handle != 0 and handle == known_handle["handle"]:
+                return None
+
+        name = ""
+        if registry == 0x80000000:
+            name = "HKEY_CLASSES_ROOT\\"
+        elif registry == 0x80000001:
+            name = "HKEY_CURRENT_USER\\"
+        elif registry == 0x80000002:
+            name = "HKEY_LOCAL_MACHINE\\"
+        elif registry == 0x80000003:
+            name = "HKEY_USERS\\"
+        elif registry == 0x80000004:
+            name = "HKEY_PERFORMANCE_DATA\\"
+        elif registry == 0x80000005:
+            name = "HKEY_CURRENT_CONFIG\\"
+        elif registry == 0x80000006:
+            name = "HKEY_DYN_DATA\\"
+        else:
+            for known_handle in self.handles:
+                if registry == known_handle["handle"]:
+                    name = known_handle["name"] + "\\"
+
+        self.handles.append({"handle" : handle, "name" : name + subkey})
+        return name + subkey
+
+    def event_apicall(self, call, process):
+        """Generate processes list from streamed calls/processes.
+        @return: None.
+        """
+
+        if call["api"].startswith("RegOpenKeyEx") or call["api"].startswith("RegCreateKeyEx"):
+            registry = 0
+            subkey = ""
+            handle = 0
+
+            for argument in call["arguments"]:
+                if argument["name"] == "Registry":
+                    registry = int(argument["value"], 16)
+                elif argument["name"] == "SubKey":
+                    subkey = argument["value"]
+                elif argument["name"] == "Handle":
+                    handle = int(argument["value"], 16)
+
+            name = self._check_registry(registry, subkey, handle)
+            if name and name not in self.keys:
+                self.keys.append(name)
+        elif call["api"].startswith("RegCloseKey"):
+            handle = 0
+
+            for argument in call["arguments"]:
+                if argument["name"] == "Handle":
+                    handle = int(argument["value"], 16)
+
+            if handle != 0:
+                try: self.handles.remove(handle)
+                except ValueError: pass
+
+        elif call["category"] == "filesystem":
+            for argument in call["arguments"]:
+                if argument["name"] == "FileName":
+                    value = argument["value"].strip()
+                    if not value:
+                        continue
+
+                    if value not in self.files:
+                        self.files.append(value)
+
+        elif call["category"] == "synchronization":
+            for argument in call["arguments"]:
+                if argument["name"] == "MutexName":
+                    value = argument["value"].strip()
+                    if not value:
+                        continue
+
+                    if value not in self.mutexes:
+                        self.mutexes.append(value)
 
     def run(self):
         """Get registry keys, mutexes and files.
         @return: Summary of keys, mutexes and files.
         """
-        keys = []
-        mutexes = []
-        files = []
-
-        def _check_registry(handles, registry, subkey, handle):
-            for known_handle in handles:
-                if handle != 0 and handle == known_handle["handle"]:
-                    return None
-
-            name = ""
-            if registry == 0x80000000:
-                name = "HKEY_CLASSES_ROOT\\"
-            elif registry == 0x80000001:
-                name = "HKEY_CURRENT_USER\\"
-            elif registry == 0x80000002:
-                name = "HKEY_LOCAL_MACHINE\\"
-            elif registry == 0x80000003:
-                name = "HKEY_USERS\\"
-            elif registry == 0x80000004:
-                name = "HKEY_PERFORMANCE_DATA\\"
-            elif registry == 0x80000005:
-                name = "HKEY_CURRENT_CONFIG\\"
-            elif registry == 0x80000006:
-                name = "HKEY_DYN_DATA\\"
-            else:
-                for known_handle in handles:
-                    if registry == known_handle["handle"]:
-                        name = known_handle["name"] + "\\"
-
-            handles.append({"handle" : handle, "name" : name + subkey})
-            return name + subkey
-
-        def _remove_handle(handles, handle):
-            for known_handle in handles:
-                if handle != 0 and handle == known_handle["handle"]:
-                    handles.remove(known_handle)
-
-        for process in self.proc_results:
-            handles = []
-
-            for call in process["calls"]:
-                if call["api"].startswith("RegOpenKeyEx") or call["api"].startswith("RegCreateKeyEx"):
-                    registry = 0
-                    subkey = ""
-                    handle = 0
-
-                    for argument in call["arguments"]:
-                        if argument["name"] == "Registry":
-                            registry = int(argument["value"], 16)
-                        elif argument["name"] == "SubKey":
-                            subkey = argument["value"]
-                        elif argument["name"] == "Handle":
-                            handle = int(argument["value"], 16)
-
-                    name = _check_registry(handles, registry, subkey, handle)
-                    if name and name not in keys:
-                        keys.append(name)
-                elif call["api"].startswith("RegCloseKey"):
-                    handle = 0
-
-                    for argument in call["arguments"]:
-                        if argument["name"] == "Handle":
-                            handle = int(argument["value"], 16)
-                    _remove_handle(handles, handle)
-
-                elif call["category"] == "filesystem":
-                    for argument in call["arguments"]:
-                        if argument["name"] == "FileName":
-                            value = argument["value"].strip()
-                            if not value:
-                                continue
-
-                            if value not in files:
-                                files.append(value)
-
-                elif call["category"] == "synchronization":
-                    for argument in call["arguments"]:
-                        if argument["name"] == "MutexName":
-                            value = argument["value"].strip()
-                            if not value:
-                                continue
-
-                            if value not in mutexes:
-                                mutexes.append(value)
-
-        return {"files": files, "keys": keys, "mutexes": mutexes}
-
-class ProcessTree:
-    """Creates process tree."""
-
-    def __init__(self, proc_results):
-        """@param proc_results: enumerated processes information."""
-        self.proc_results = proc_results
-        self.processes = []
-        self.proctree = []
-
-    def gen_proclist(self):
-        """Generate processes list.
-        @return: True.
-        """
-        for entry in self.proc_results:
-            process = {}
-            process["name"] = entry["process_name"]
-            process["pid"] = int(entry["process_id"])
-            process["children"] = []
-            
-            for call in entry["calls"]:
-                if call["api"] == "CreateProcessInternalW":
-                    for argument in call["arguments"]:
-                        if argument["name"] == "ProcessId":
-                            process["children"].append(int(argument["value"]))
-
-            self.processes.append(process)
-
-        return True
-
-    def add_node(self, node, parent_id, tree):
-        """Add a node to a tree.
-        @param node: node to add.
-        @param parent_id: parent node.
-        @param tree: processes tree.
-        @return: boolean with operation success status.
-        """
-        for process in tree:
-            if process["pid"] == parent_id:
-                new = {}
-                new["name"] = node["name"]
-                new["pid"] = node["pid"]
-                new["children"] = []
-                process["children"].append(new)
-                return True
-            self.add_node(node, parent_id, process["children"])
-            
-        return False
-
-    def populate(self, node):
-        """Populate tree.
-        @param node: node to add.
-        @return: True.
-        """
-        for children in node["children"]:
-            for proc in self.processes:
-                if int(proc["pid"]) == int(children):
-                    self.add_node(proc, node["pid"], self.proctree)
-                    self.populate(proc)
-
-        return True
-
-    def run(self):
-        """Run analysis.
-        @return: results dict or None.
-        """
-        if not self.proc_results or len(self.proc_results) == 0:
-            return None
-    
-        self.gen_proclist()
-        root = {}
-        root["name"] = self.processes[0]["name"]
-        root["pid"] = self.processes[0]["pid"]
-        root["children"] = []
-        self.proctree.append(root)
-        self.populate(self.processes[0])
-
-        return self.proctree
+        return {"files": self.files, "keys": self.keys, "mutexes": self.mutexes}
 
 class Enhanced(object):
 
-    def __init__(self, proc_results, details=False):
+    key = "enhanced"
+
+    def __init__(self, details=False):
         """
-        @param proc_results: enumerated processes results.
         @param details: Also add some (not so relevant) Details to the log
         """
-        self.proc_results = proc_results
         self.currentdir = "C: "
         self.eid = 0
         self.details = details
@@ -427,6 +360,7 @@ class Enhanced(object):
         }
         self.modules = {}
         self.procedures = {}
+        self.events = []
 
     def _add_procedure(self, mbase, name, base):
         """
@@ -809,33 +743,114 @@ class Enhanced(object):
 
         return event
 
+    def event_apicall(self, call, process):
+        """Generate processes list from streamed calls/processes.
+        @return: None.
+        """
+        event = self._process_call(call)
+        if event:
+            self.events.append(event)
+
     def run(self):
         """Get registry keys, mutexes and files.
         @return: Summary of keys, mutexes and files.
         """
-        events = []
+        return self.events
 
-        for entry in self.proc_results:
-            for call in entry["calls"]:
-                event = self._process_call(call)
-                if event:
-                    events.append(event)
+class ProcessTree:
+    """Generates process tree."""
 
-        return events
+    key = "processtree"
+
+    def __init__(self):
+        self.processes = []
+        self.tree = []
+
+    def add_node(self, node, tree):
+        """Add a node to a process tree.
+        @param node: node to add.
+        @param tree: processes tree.
+        @return: boolean with operation success status.
+        """
+        # Walk through the existing tree.
+        for process in tree:
+            # If the current process has the same ID of the parent process of
+            # the provided one, append it the children.
+            if process["pid"] == node["parent_id"]:
+                process["children"].append(node)
+            # Otherwise try with the children of the current process.
+            else:
+                self.add_node(node, process["children"])
+
+    def event_apicall(self, call, process):
+        for entry in self.processes:
+            if entry["pid"] == process["process_id"]:
+                return
+
+        self.processes.append(dict(
+            name=process["process_name"],
+            pid=process["process_id"],
+            parent_id=process["parent_id"],
+            children=[]
+        ))
+
+    def run(self):
+        children = []
+
+        # Walk through the generated list of processes.
+        for process in self.processes:
+            has_parent = False
+            # Walk through the list again.
+            for process_again in self.processes:
+                # If we find a parent for the first process, we mark it as
+                # as a child.
+                if process_again["pid"] == process["parent_id"]:
+                    has_parent = True
+
+            # If the process has a parent, add it to the children list.
+            if has_parent:
+                children.append(process)
+            # Otherwise it's an orphan and we add it to the tree root.
+            else:
+                self.tree.append(process)
+
+        # Now we loop over the remaining child processes.
+        for process in children:
+            self.add_node(process, self.tree)
+
+        return self.tree
 
 class BehaviorAnalysis(Processing):
     """Behavior Analyzer."""
+
+    key = "behavior"
 
     def run(self):
         """Run analysis.
         @return: results dict.
         """
-        self.key = "behavior"
-
         behavior = {}
         behavior["processes"] = Processes(self.logs_path).run()
-        behavior["processtree"] = ProcessTree(behavior["processes"]).run()
-        behavior["summary"] = Summary(behavior["processes"]).run()
-        behavior["enhanced"] = Enhanced(behavior["processes"]).run()
+
+        instances = [
+            ProcessTree(),
+            Summary(),
+            Enhanced(),
+        ]
+
+        # Iterate calls and tell interested signatures about them
+        for process in behavior["processes"]:
+            for call in process["calls"]:
+                for instance in instances:
+                    try:
+                        instance.event_apicall(call, process)
+                    except:
+                        log.exception("Failure in partial behavior \"%s\"", instance.key)
+
+        for instance in instances:
+            try:
+                behavior[instance.key] = instance.run()
+            except:
+                log.exception("Failed to run partial behavior class \"%s\"", instance.key)
 
         return behavior
