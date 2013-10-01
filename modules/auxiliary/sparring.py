@@ -31,6 +31,8 @@ class Sparring(Auxiliary):
         print sparring
         ip = self.machine.ip
 
+        # call submit.py like:
+        # utils/submit.py --custom sparring_mode=transparent somefile
         try:
           opts = dict(item.split("=") for item in self.task.custom.split(" "))
           mode = opts.get('sparring_mode')
@@ -44,11 +46,14 @@ class Sparring(Auxiliary):
         if mode == 'full':
           mode_opt= "-f"
 
-        # for now we assume all vHosts are in the same class C subnet so we
-        # use the ip's last octet as unique (nf)queue number in transparent
-        # mode
+        # Note:
+        # You have to make sure that your iptables setup conforms to
+        # the rules described for transparent and half/full mode:
+
+        # use the ip addresses's last octet value as unique (nf)queue number in
+        # transparent mode
         queueno = ip.split(".")[3]
-        # similarly for our ports in half and full mode
+        # similarly for our ports in half and full mode:
         port = "5" + queueno 
 
         if not os.path.exists(sparring):
@@ -59,7 +64,7 @@ class Sparring(Auxiliary):
         pargs = ["sudo", sparring, mode_opt, "-a", ip, "-p", port]
 
         try:
-            # sudo sparring -h -a 123.0.0.1 -f -p 5002
+            # sudo sparring -a 123.0.0.1 -f -p 5002
             self.proc = subprocess.Popen(pargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             pass
         except (OSError, ValueError) as e:
