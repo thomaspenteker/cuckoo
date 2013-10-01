@@ -30,6 +30,7 @@ class Sparring(Auxiliary):
         sparring = self.options.get("path", "/usr/bin/sparring")
         print sparring
         ip = self.machine.ip
+        file_path = os.path.join(CUCKOO_ROOT, "storage", "analyses", str(self.task.id), "sparring.log")
 
         # call submit.py like:
         # utils/submit.py --custom sparring_mode=transparent somefile

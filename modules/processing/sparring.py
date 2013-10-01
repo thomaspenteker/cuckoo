@@ -6,6 +6,7 @@ import os
 import re
 import socket
 import logging
+import pickle
 from urlparse import urlunparse
 
 from lib.cuckoo.common.utils import convert_to_printable
@@ -15,20 +16,14 @@ from lib.cuckoo.common.dns import resolve
 from lib.cuckoo.common.irc import ircMessage
 from lib.cuckoo.common.objects import File
 
-try:
-    import dpkt
-    IS_DPKT = True
-except ImportError:
-    IS_DPKT = False
+class Sparring:
+    """Parse sparring analysis results. """
 
-class Pcap:
-    """Reads network data from PCAP file."""
-
-    def __init__(self, filepath):
+    def __init__(self, file_path):
         """Creates a new instance.
-        @param filepath: path to PCAP file
+        @param filepath: path to sparring log file
         """
-        self.filepath = filepath
+        self.filepath = file_path
 
         # List containing all IP addresses involved in the analysis.
         self.unique_hosts = []
@@ -318,85 +313,33 @@ class Pcap:
         return True
 
     def run(self):
-        """Process PCAP.
+        """Process Sparring log.
         @return: dict with network analysis data.
         """
-        log = logging.getLogger("Processing.Pcap")
+        log = logging.getLogger("Processing.Sparring")
 
-        if not IS_DPKT:
-            log.error("Python DPKT is not installed, aborting PCAP analysis.")
+        if not os.path.exists(self.file_path):
+            log.warning("The Sparring log file does not exist at path \"%s\"." % self.file_path)
             return None
 
-        if not os.path.exists(self.filepath):
-            log.warning("The PCAP file does not exist at path \"%s\"." % self.filepath)
-            return None
-
-        if os.path.getsize(self.filepath) == 0:
-            log.error("The PCAP file at path \"%s\" is empty." % self.filepath)
+        if os.path.getsize(self.file_path) == 0:
+            log.error("The Sparring log file at path \"%s\" is empty." % self.file_path)
             return None
 
         try:
-            file = open(self.filepath, "rb")
+            file = open(self.file_path, "rb")
         except (IOError, OSError):
-            log.error("Unable to open %s" % self.filepath)
+            log.error("Unable to open %s" % self.file_path)
             return None
 
-        try:
-            pcap = dpkt.pcap.Reader(file)
-        except dpkt.dpkt.NeedData:
-            log.error("Unable to read PCAP file at path \"%s\"." % self.filepath)
-            return None
-        except ValueError:
-            log.error("Unable to read PCAP file at path \"%s\". File is corrupted or wrong format." % self.filepath)
-            return None
-
-        for ts, buf in pcap:
-            try:
-                eth = dpkt.ethernet.Ethernet(buf)
-                ip = eth.data
-
-                connection = {}
-                if isinstance(ip, dpkt.ip.IP):
-                    connection["src"] = socket.inet_ntoa(ip.src)
-                    connection["dst"] = socket.inet_ntoa(ip.dst)
-                elif isinstance(ip, dpkt.ip6.IP6):
-                    connection["src"] = socket.inet_ntop(socket.AF_INET6, ip.src)
-                    connection["dst"] = socket.inet_ntop(socket.AF_INET6, ip.dst)
-
-                self._add_hosts(connection)
-
-                if ip.p == dpkt.ip.IP_PROTO_TCP:
-
-                    tcp = ip.data
-
-                    if len(tcp.data) > 0:
-                        connection["sport"] = tcp.sport
-                        connection["dport"] = tcp.dport
-                        self._tcp_dissect(connection, tcp.data)
-                        self.tcp_connections.append(connection)
-                    else:
-                        continue
-                elif ip.p == dpkt.ip.IP_PROTO_UDP:
-                    udp = ip.data
-
-                    if len(udp.data) > 0:
-                        connection["sport"] = udp.sport
-                        connection["dport"] = udp.dport
-                        self._udp_dissect(connection, udp.data)
-                        self.udp_connections.append(connection)
-                #elif ip.p == dpkt.ip.IP_PROTO_ICMP:
-                    #icmp = ip.data
-            except AttributeError:
-                continue
-            except dpkt.dpkt.NeedData:
-                continue
+        slog = pickle.load(file)
 
         file.close()
 
-        # Post processors for reconstructed flows.
-        self._process_smtp()
-
         # Build results dict.
+        # TODO ... vvvvvvv ...
+        # for i in slog,keys():
+        #   ...
         self.results["hosts"] = self.unique_hosts
         self.results["domains"] = self.unique_domains
         self.results["tcp"] = self.tcp_connections
@@ -413,11 +356,8 @@ class SparringNetworkAnalysis(Processing):
 
     def run(self):
         self.key = "sparring"
+        file_path = os.path.join(CUCKOO_ROOT, "storage", "analyses", str(self.task.id), "sparring.log")
 
-        results = Pcap(self.pcap_path).run()
-
-        # Save PCAP file hash.
-        if os.path.exists(self.pcap_path):
-            results["pcap_sha256"] = File(self.pcap_path).get_sha256()
+        results = Sparring(file_path).run()
 
         return results
