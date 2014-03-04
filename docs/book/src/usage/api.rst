@@ -4,7 +4,7 @@ REST API
 
 As mentioned in :doc:`submit`, Cuckoo provides a simple and lightweight REST
 API server implemented in `Bottle.py`_, therefore in order to make the service
-work you'll need it installed, Bottle release must be 0.10 or above.
+work you'll need it installed. Bottle release must be 0.10 or above.
 
 On Debian/Ubuntu::
 
@@ -23,14 +23,14 @@ In order to start the API server you can simply do::
 
     $ ./utils/api.py
 
-By default it will bind the service on **localhost:8090**. If you want to change those values, you can for example with::
+By default it will bind the service on **localhost:8090**. If you want to change those values, you can for example do this::
 
     $ ./utils/api.py --host 0.0.0.0 --port 1337
 
 Resources
 =========
 
-Following is a list of currently available resources and a brief description. For details click on the resource name.
+Following is a list of currently available resources and a brief description of each one. For details click on the resource name.
 
 +-----------------------------------+------------------------------------------------------------------------------------------------------------------+
 | Resource                          | Description                                                                                                      |
@@ -57,6 +57,10 @@ Following is a list of currently available resources and a brief description. Fo
 +-----------------------------------+------------------------------------------------------------------------------------------------------------------+
 | ``GET`` :ref:`machines_view`      | Returns details on the analysis machine associated with the specified name.                                      |
 +-----------------------------------+------------------------------------------------------------------------------------------------------------------+
+| ``GET`` :ref:`cuckoo_status`      | Returns the basic cuckoo status, including version and tasks overview                                            |
++-----------------------------------+------------------------------------------------------------------------------------------------------------------+
+
+.. highlight:: javascript
 
 .. _tasks_create_file:
 
@@ -433,6 +437,43 @@ Following is a list of currently available resources and a brief description. Fo
                 }
             }
 
+        **Status codes**:
+            * ``200`` - no error
+            * ``404`` - machine not found
+
+.. _cuckoo_status:
+
+/cuckoo/status
+--------------
+
+    **GET /cuckoo/status/**
+
+        Returns status of the cuckoo server.
+
+        **Example request**::
+
+            curl http://localhost:8090/cuckoo/status
+
+        **Example response**::
+
+            {
+                "tasks": {
+                    "reported": 165, 
+                    "running": 2, 
+                    "total": 167, 
+                    "completed": 0, 
+                    "pending": 0
+                }, 
+                "version": "1.0",
+                "protocol_version": 1,
+                "hostname": "Patient0", 
+                "machines": {
+                    "available": 4, 
+                    "total": 5
+                }
+                "tools":["vanilla"]
+            }
+            
         **Status codes**:
             * ``200`` - no error
             * ``404`` - machine not found

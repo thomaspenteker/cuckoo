@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (C) 2010-2013 Cuckoo Sandbox Developers.
+# Copyright (C) 2010-2014 Cuckoo Sandbox Developers.
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
 
@@ -9,15 +9,16 @@ import json
 import argparse
 import tarfile
 import StringIO
+import socket
 
 try:
-    from bottle import Bottle, route, run, request, server_names, ServerAdapter, hook, response, HTTPError
+    from bottle import route, run, request, hook, response, HTTPError
 except ImportError:
     sys.exit("ERROR: Bottle.py library is missing")
 
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(__file__)), ".."))
 
-from lib.cuckoo.common.constants import CUCKOO_ROOT
+from lib.cuckoo.common.constants import CUCKOO_VERSION, CUCKOO_ROOT
 from lib.cuckoo.common.utils import store_temp_file, delete_folder
 from lib.cuckoo.core.database import Database
 
@@ -65,18 +66,20 @@ def tasks_create_file():
         enforce_timeout = True
 
     temp_file_path = store_temp_file(data.file.read(), data.filename)
-    task_id = db.add_path(file_path=temp_file_path,
-                          package=package,
-                          timeout=timeout,
-                          priority=priority,
-                          options=options,
-                          machine=machine,
-                          platform=platform,
-                          tags=tags,
-                          custom=custom,
-                          memory=memory,
-                          enforce_timeout=enforce_timeout,
-                          clock=clock)
+    task_id = db.add_path(
+        file_path=temp_file_path,
+        package=package,
+        timeout=timeout,
+        priority=priority,
+        options=options,
+        machine=machine,
+        platform=platform,
+        tags=tags,
+        custom=custom,
+        memory=memory,
+        enforce_timeout=enforce_timeout,
+        clock=clock
+    )
 
     response["task_id"] = task_id
     return jsonize(response)
@@ -102,18 +105,20 @@ def tasks_create_url():
         enforce_timeout = True
     clock = request.forms.get("clock", None)
 
-    task_id = db.add_url(url=url,
-                         package=package,
-                         timeout=timeout,
-                         options=options,
-                         priority=priority,
-                         machine=machine,
-                         platform=platform,
-                         tags=tags,
-                         custom=custom,
-                         memory=memory,
-                         enforce_timeout=enforce_timeout,
-                         clock=clock)
+    task_id = db.add_url(
+        url=url,
+        package=package,
+        timeout=timeout,
+        options=options,
+        priority=priority,
+        machine=machine,
+        platform=platform,
+        tags=tags,
+        custom=custom,
+        memory=memory,
+        enforce_timeout=enforce_timeout,
+        clock=clock
+    )
 
     response["task_id"] = task_id
     return jsonize(response)
@@ -171,7 +176,8 @@ def tasks_reschedule(task_id):
     if db.reschedule(task_id):
         response["status"] = "OK"
     else:
-        return HTTPError(500, "An error occurred while trying to reschedule the task")
+        return HTTPError(500, "An error occurred while trying to "
+                              "reschedule the task")
 
     return jsonize(response)
 
@@ -182,13 +188,16 @@ def tasks_delete(task_id):
     task = db.view_task(task_id)
     if task:
         if task.status == "processing":
-            return HTTPError(500, "The task is currently being processed, cannot delete")
+            return HTTPError(500, "The task is currently being "
+                                  "processed, cannot delete")
 
         if db.delete_task(task_id):
-            delete_folder(os.path.join(CUCKOO_ROOT, "storage", "analyses", task_id))
+            delete_folder(os.path.join(CUCKOO_ROOT, "storage",
+                                       "analyses", task_id))
             response["status"] = "OK"
         else:
-            return HTTPError(500, "An error occurred while trying to delete the task")
+            return HTTPError(500, "An error occurred while trying to "
+                                  "delete the task")
     else:
         return HTTPError(404, "Task not found")
 
@@ -198,10 +207,10 @@ def tasks_delete(task_id):
 @route("/tasks/report/<task_id>/<report_format>", method="GET")
 def tasks_report(task_id, report_format="json"):
     formats = {
-        "json" : "report.json",
-        "html" : "report.html",
-        "maec" : "report.maec-1.1.xml",
-        "metadata" : "report.metadata.xml"
+        "json": "report.json",
+        "html": "report.html",
+        "maec": "report.maec-1.1.xml",
+        "metadata": "report.metadata.xml"
     }
 
     bz_formats = {
@@ -209,21 +218,25 @@ def tasks_report(task_id, report_format="json"):
         "dropped": {"type": "+", "files": ["files"]},
     }
 
+    tar_formats = {
+        "bz2": "w:bz2",
+        "gz": "w:gz",
+        "tar": "w",
+    }
+
     if report_format.lower() in formats:
-        report_path = os.path.join(CUCKOO_ROOT,
-                                   "storage",
-                                   "analyses",
-                                   task_id,
-                                   "reports",
+        report_path = os.path.join(CUCKOO_ROOT, "storage", "analyses",
+                                   task_id, "reports",
                                    formats[report_format.lower()])
     elif report_format.lower() in bz_formats:
             bzf = bz_formats[report_format.lower()]
-            srcdir = os.path.join(CUCKOO_ROOT,
-                                   "storage",
-                                   "analyses",
-                                   task_id)
+            srcdir = os.path.join(CUCKOO_ROOT, "storage", "analyses", task_id)
             s = StringIO.StringIO()
-            tar = tarfile.open(fileobj=s, mode="w:bz2")
+
+            # By default go for bz2 encoded tar files (for legacy reasons.)
+            tarmode = tar_formats.get(request.get("tar"), "w:bz2")
+
+            tar = tarfile.open(fileobj=s, mode=tarmode)
             for filedir in os.listdir(srcdir):
                 if bzf["type"] == "-" and not filedir in bzf["files"]:
                     tar.add(os.path.join(srcdir, filedir), arcname=filedir)
@@ -280,6 +293,26 @@ def machines_list():
     response["machines"] = []
     for row in machines:
         response["machines"].append(row.to_dict())
+
+    return jsonize(response)
+
+@route("/cuckoo/status", method="GET")
+def cuckoo_status():
+    response = dict(
+        version=CUCKOO_VERSION,
+        hostname=socket.gethostname(),
+        machines=dict(
+            total=len(db.list_machines()),
+            available=db.count_machines_available()
+        ),
+        tasks=dict(
+            total=db.count_tasks(),
+            pending=db.count_tasks("pending"),
+            running=db.count_tasks("running"),
+            completed=db.count_tasks("completed"),
+            reported=db.count_tasks("reported")
+        ),
+    )
 
     return jsonize(response)
 

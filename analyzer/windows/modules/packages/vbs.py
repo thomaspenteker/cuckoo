@@ -1,4 +1,4 @@
-# Copyright (C) 2010-2013 Cuckoo Sandbox Developers.
+# Copyright (C) 2010-2014 Cuckoo Sandbox Developers.
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
 
@@ -28,8 +28,10 @@ class VBS(Package):
     def start(self, path):
         wscript = self.get_path()
         if not wscript:
-            raise CuckooPackageError("Unable to find any WScript executable available")
+            raise CuckooPackageError("Unable to find any WScript "
+                                     "executable available")
 
+        dll = self.options.get("dll", None)
         free = self.options.get("free", False)
         suspended = True
         if free:
@@ -37,10 +39,11 @@ class VBS(Package):
 
         p = Process()
         if not p.execute(path=wscript, args="\"{0}\"".format(path), suspended=suspended):
-            raise CuckooPackageError("Unable to execute initial WScript process, analysis aborted")
+            raise CuckooPackageError("Unable to execute initial WScript "
+                                     "process, analysis aborted")
 
         if not free and suspended:
-            p.inject()
+            p.inject(dll)
             p.resume()
             return p.pid
         else:

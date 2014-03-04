@@ -1,4 +1,4 @@
-# Copyright (C) 2010-2013 Cuckoo Sandbox Developers.
+# Copyright (C) 2010-2014 Cuckoo Sandbox Developers.
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
 
@@ -30,7 +30,8 @@ class Screenshots(Auxiliary, Thread):
         @return: operation status.
         """
         if not Screenshot().have_pil():
-            log.warning("Python Image Library is not installed, screenshots are disabled")
+            log.warning("Python Image Library is not installed, "
+                        "screenshots are disabled")
             return False
 
         img_counter = 0

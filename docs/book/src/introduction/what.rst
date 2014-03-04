@@ -60,10 +60,17 @@ On 20th December 2012, Cuckoo Sandbox 0.5 "To The End Of The World" is released.
 On 15th April 2013 we released Cuckoo Sandbox 0.6, shortly after having launched
 the second version of `Malwr.com`_.
 
+On 1st August 2013 *Claudio “nex” Guarnieri*, *Jurriaan "skier" Bremer* and
+*Mark "rep" Schloesser* presented `Mo' Malware Mo' Problems - Cuckoo Sandbox to the rescue`_
+at Black Hat Las Vegas.
+
+On 9th January 2014, Cuckoo Sandbox 1.0 is released.
+
 .. _`Google Summer of Code`: http://www.google-melange.com
 .. _`The Honeynet Project`: http://www.honeynet.org
 .. _`Malwr.com`: http://malwr.com
 .. _`Magnificent7`: http://community.rapid7.com/community/open_source/magnificent7
+.. _`Mo' Malware Mo' Problems - Cuckoo Sandbox to the rescue`: https://media.blackhat.com/us-13/US-13-Bremer-Mo-Malware-Mo-Problems-Cuckoo-Sandbox-Slides.pdf
 .. _`Rapid7`: http://www.rapid7.com
 
 Use Cases
@@ -78,8 +85,12 @@ It can be used to analyze:
     * DLL files
     * PDF documents
     * Microsoft Office documents
-    * URLs
+    * URLs and HTML files
     * PHP scripts
+    * CPL files
+    * Visual Basic (VB) scripts
+    * ZIP files
+    * Java JAR
     * *Almost anything else*
 
 Thanks to its modularity and powerful scripting capabilities, there's not limit
@@ -107,8 +118,8 @@ The following picture explains Cuckoo's main architecture:
     .. image:: ../_images/schemas/architecture-main.png
         :align: center
 
-Although recommended setup is *GNU/Linux* (Ubuntu preferrably) as host and
-*Windows XP Service Pack 3* as guest, Cuckoo proved to work smoothly also on
+Although the recommended setup is *GNU/Linux* (Ubuntu preferably) as host and
+*Windows XP Service Pack 3* as guest, Cuckoo has proved to work smoothly also on
 *Mac OS X* as host and *Windows Vista* and *Windows 7* as guests.
 
 Obtaining Cuckoo

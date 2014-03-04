@@ -1,19 +1,25 @@
-# Copyright (C) 2010-2013 Cuckoo Sandbox Developers.
+# Copyright (C) 2010-2014 Cuckoo Sandbox Developers.
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
 
 import os
+import json
 import pkgutil
 import inspect
 import logging
 from collections import defaultdict
 from distutils.version import StrictVersion
 
-from lib.cuckoo.common.constants import CUCKOO_ROOT, CUCKOO_VERSION
+from lib.cuckoo.common.abstracts import Auxiliary, Machinery, Processing
+from lib.cuckoo.common.abstracts import Report, Signature
 from lib.cuckoo.common.config import Config
+from lib.cuckoo.common.constants import CUCKOO_ROOT, CUCKOO_VERSION
+from lib.cuckoo.common.exceptions import CuckooCriticalError
+from lib.cuckoo.common.exceptions import CuckooOperationalError
+from lib.cuckoo.common.exceptions import CuckooProcessingError
+from lib.cuckoo.common.exceptions import CuckooReportError
+from lib.cuckoo.common.exceptions import CuckooDependencyError
 from lib.cuckoo.core.database import Database
-from lib.cuckoo.common.exceptions import CuckooCriticalError, CuckooOperationalError, CuckooProcessingError, CuckooReportError
-from lib.cuckoo.common.abstracts import Auxiliary, Machinery, Processing, Report, Signature
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +29,8 @@ def import_plugin(name):
     try:
         module = __import__(name, globals(), locals(), ["dummy"], -1)
     except ImportError as e:
-        raise CuckooCriticalError("Unable to import plugin \"{0}\": {1}".format(name, e))
+        raise CuckooCriticalError("Unable to import plugin "
+                                  "\"{0}\": {1}".format(name, e))
     else:
         load_plugins(module)
 
@@ -76,7 +83,8 @@ class RunAuxiliary(object):
                 try:
                     current = module()
                 except:
-                    log.exception("Failed to load the auxiliary module \"{0}\":".format(module))
+                    log.exception("Failed to load the auxiliary module "
+                                  "\"{0}\":".format(module))
                     return
 
                 module_name = inspect.getmodule(current).__name__
@@ -86,7 +94,8 @@ class RunAuxiliary(object):
                 try:
                     options = self.cfg.get(module_name)
                 except CuckooOperationalError:
-                    log.debug("Auxiliary module %s not found in configuration file", module_name)
+                    log.debug("Auxiliary module %s not found in "
+                              "configuration file", module_name)
                     continue
 
                 if not options.enabled:
@@ -100,10 +109,11 @@ class RunAuxiliary(object):
                     current.start()
                 except NotImplementedError:
                     pass
-                #except Exception as e:
-                #    log.warning("Unable to start auxiliary module %s: %s", module_name, e)
+                except Exception as e:
+                    log.warning("Unable to start auxiliary module %s: %s",
+                                module_name, e)
                 else:
-                    log.debug("Stopped auxiliary module: %s", module_name)
+                    log.debug("Started auxiliary module: %s", module_name)
                     self.enabled.append(current)
 
     def stop(self):
@@ -141,7 +151,8 @@ class RunProcessing(object):
         try:
             current = module()
         except:
-            log.exception("Failed to load the processing module \"{0}\":".format(module))
+            log.exception("Failed to load the processing module "
+                          "\"{0}\":".format(module))
             return
 
         # Extract the module name.
@@ -152,7 +163,8 @@ class RunProcessing(object):
         try:
             options = self.cfg.get(module_name)
         except CuckooOperationalError:
-            log.debug("Processing module %s not found in configuration file", module_name)
+            log.debug("Processing module %s not found in configuration file",
+                      module_name)
             return None
 
         # If the processing module is disabled in the config, skip it.
@@ -171,15 +183,17 @@ class RunProcessing(object):
             # appended to the general results container.
             data = current.run()
 
-            log.debug("Executed processing module \"%s\" on analysis at \"%s\"",
-                      current.__class__.__name__, self.analysis_path)
+            log.debug("Executed processing module \"%s\" on analysis at "
+                      "\"%s\"", current.__class__.__name__, self.analysis_path)
 
             # If succeeded, return they module's key name and the data to be
             # appended to it.
-            return {current.key : data}
+            return {current.key: data}
+        except CuckooDependencyError as e:
+            log.warning("The processing module \"%s\" has missing dependencies: %s", current.__class__.__name__, e)
         except CuckooProcessingError as e:
-            log.warning("The processing module \"%s\" returned the following error: %s",
-                        current.__class__.__name__, e)
+            log.warning("The processing module \"%s\" returned the following "
+                        "error: %s", current.__class__.__name__, e)
         except:
             log.exception("Failed to run the processing module \"%s\":",
                           current.__class__.__name__)
@@ -193,8 +207,8 @@ class RunProcessing(object):
         # This is the results container. It's what will be used by all the
         # reporting modules to make it consumable by humans and machines.
         # It will contain all the results generated by every processing
-        # module available. Its structure can be observed throgh the JSON
-        # dump in the the analysis' reports folder.
+        # module available. Its structure can be observed through the JSON
+        # dump in the analysis' reports folder. (If jsondump is enabled.)
         # We friendly call this "fat dict".
         results = {}
 
@@ -226,6 +240,28 @@ class RunSignatures(object):
     def __init__(self, results):
         self.results = results
 
+    def _load_overlay(self):
+        """Loads overlay data from a json file.
+        See example in data/signature_overlay.json
+        """
+        filename = os.path.join(CUCKOO_ROOT, "data", "signature_overlay.json")
+
+        try:
+            with open(filename) as fh:
+                odata = json.load(fh)
+                return odata
+        except IOError:
+            pass
+        
+        return {}
+
+    def _apply_overlay(self, signature, overlay):
+        """Applies the overlay attributes to the signature object."""
+        if signature.name in overlay:
+            attrs = overlay[signature.name]
+            for attr, value in attrs.items():
+                setattr(signature, attr, value)
+
     def _check_signature_version(self, current):
         """Check signature version.
         @param current: signature class/instance to check.
@@ -243,11 +279,14 @@ class RunSignatures(object):
                 # If the running Cuckoo is older than the required minimum
                 # version, skip this signature.
                 if StrictVersion(version) < StrictVersion(current.minimum.split("-")[0]):
-                    log.debug("You are running an older incompatible version of Cuckoo, the signature \"%s\" requires minimum version %s",
+                    log.debug("You are running an older incompatible version "
+                              "of Cuckoo, the signature \"%s\" requires "
+                              "minimum version %s",
                               current.name, current.minimum)
                     return None
             except ValueError:
-                log.debug("Wrong minor version number in signature %s", current.name)
+                log.debug("Wrong minor version number in signature %s",
+                          current.name)
                 return None
 
         # If provided, check the maximum working Cuckoo version for this
@@ -257,11 +296,14 @@ class RunSignatures(object):
                 # If the running Cuckoo is newer than the required maximum
                 # version, skip this signature.
                 if StrictVersion(version) > StrictVersion(current.maximum.split("-")[0]):
-                    log.debug("You are running a newer incompatible version of Cuckoo, the signature \"%s\" requires maximum version %s",
+                    log.debug("You are running a newer incompatible version "
+                              "of Cuckoo, the signature \"%s\" requires "
+                              "maximum version %s",
                               current.name, current.maximum)
                     return None
             except ValueError:
-                log.debug("Wrong major version number in signature %s", current.name)
+                log.debug("Wrong major version number in signature %s",
+                          current.name)
                 return None
 
         return True
@@ -276,7 +318,8 @@ class RunSignatures(object):
         try:
             current = signature(self.results)
         except:
-            log.exception("Failed to load signature \"{0}\":".format(signature))
+            log.exception("Failed to load signature "
+                          "\"{0}\":".format(signature))
             return
 
         log.debug("Running signature \"%s\"", current.name)
@@ -293,7 +336,6 @@ class RunSignatures(object):
             # from it and append it to the results container.
             if current.run():
                 log.debug("Analysis matched signature \"%s\"", current.name)
-
                 # Return information on the matched signature.
                 return current.as_result()
         except NotImplementedError:
@@ -308,7 +350,15 @@ class RunSignatures(object):
         matched = []
 
         complete_list = list_plugins(group="signatures")
-        evented_list = [sig(self.results) for sig in complete_list if sig.enabled and sig.evented and self._check_signature_version(sig)]
+        evented_list = [sig(self.results)
+                        for sig in complete_list
+                        if sig.enabled and sig.evented and
+                        self._check_signature_version(sig)]
+
+        overlay = self._load_overlay()
+        log.debug("Applying signature overlays for signatures: %s", ", ".join(overlay.keys()))
+        for signature in complete_list + evented_list:
+            self._apply_overlay(signature, overlay)
 
         if evented_list:
             log.debug("Running %u evented signatures", len(evented_list))
@@ -342,11 +392,11 @@ class RunSignatures(object):
 
                         # If the signature returns None we can carry on, the
                         # condition was not matched.
-                        if result == None:
+                        if result is None:
                             continue
 
                         # On True, the signature is matched.
-                        if result == True:
+                        if result is True:
                             log.debug("Analysis matched signature \"%s\"", sig.name)
                             matched.append(sig.as_result())
                             if sig in complete_list:
@@ -366,14 +416,18 @@ class RunSignatures(object):
                     log.exception("Failed run on_complete() method for signature \"%s\":", sig.name)
                     continue
                 else:
-                    if result == True:
+                    if result is True:
                         log.debug("Analysis matched signature \"%s\"", sig.name)
                         matched.append(sig.as_result())
                         if sig in complete_list:
                             complete_list.remove(sig)
 
+        # Link this into the results already at this point, so non-evented signatures can use it
+        self.results["signatures"] = matched
+
         # Compat loop for old-style (non evented) signatures.
         if complete_list:
+            complete_list.sort(key=lambda sig: sig.order)
             log.debug("Running non-evented signatures")
 
             for signature in complete_list:
@@ -382,11 +436,13 @@ class RunSignatures(object):
                 if match:
                     matched.append(match)
 
-        if matched:
-            # Sort the matched signatures by their severity level.
-            matched.sort(key=lambda key: key["severity"])
+                # Reset the ParseProcessLog instances after each signature
+                if "behavior" in self.results:
+                    for process in self.results["behavior"]["processes"]:
+                        process["calls"].reset()
 
-        self.results["signatures"] = matched
+        # Sort the matched signatures by their severity level.
+        matched.sort(key=lambda key: key["severity"])
 
 class RunReporting:
     """Reporting Engine.
@@ -442,6 +498,8 @@ class RunReporting:
         try:
             current.run(self.results)
             log.debug("Executed reporting module \"%s\"", current.__class__.__name__)
+        except CuckooDependencyError as e:
+            log.warning("The reporting module \"%s\" has missing dependencies: %s", current.__class__.__name__, e)
         except CuckooReportError as e:
             log.warning("The reporting module \"%s\" returned the following error: %s", current.__class__.__name__, e)
         except:

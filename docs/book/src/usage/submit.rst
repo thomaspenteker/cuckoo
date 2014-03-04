@@ -18,7 +18,8 @@ command-line utility. It currently has the following options available::
     usage: submit.py [-h] [--url] [--package PACKAGE] [--custom CUSTOM]
                      [--timeout TIMEOUT] [--options OPTIONS] [--priority PRIORITY]
                      [--machine MACHINE] [--platform PLATFORM] [--memory]
-                     [--enforce-timeout]
+                     [--enforce-timeout] [--clock CLOCK] [--tags TAGS] [--max MAX]
+                     [--pattern PATTERN] [--shuffle] [--unique] [--quiet]
                      target
 
     positional arguments:
@@ -42,6 +43,11 @@ command-line utility. It currently has the following options available::
                            timeout period
       --clock CLOCK        Set virtual machine clock
       --tags TAGS          Specify tags identifier of a machine you want to use
+      --max MAX            Maximum samples to add in a row
+      --pattern PATTERN    Pattern of files to submit
+      --shuffle            Shuffle samples before submitting them
+      --unique             Only submit new samples, ignore duplicates
+      --quiet              Only print text on failure
 
 If you specify a directory as path, all the files contained in it will be
 submitted for analysis.
@@ -91,13 +97,26 @@ some options (in this case a command line argument for the malware)::
 
     $ ./utils/submit.py --enforce-timeout /path/to/binary
 
-*Example*: submit a local binary and set virutal machine clock. Format is %m-%d-%Y %H:%M:%S. If not specified current time is used. For example if we want run a sample the 24 january 2001 at 14:41:20::
+*Example*: submit a local binary and set virtual machine clock. Format is %m-%d-%Y %H:%M:%S. If not specified, the current time is used. For example if we want run a sample the 24 january 2001 at 14:41:20::
 
     $ ./utils/submit.py --clock "01-24-2001 14:41:20" /path/to/binary
 
-*Example*: submit a sample for volatility analysis (to reduce side effects of the cuckoo hooking, switch it off by *options free=True*)::
+*Example*: submit a sample for Volatility analysis (to reduce side effects of the cuckoo hooking, switch it off with *options free=True*)::
 
     $ ./utils/submit.py --memory --options free=True /path/to/binary
+
+.. _webpy:
+
+web.py
+======
+
+Cuckoo provides a very small utility under ``utils/web.py``, which will bind a simple 
+webserver on localhost port 8080, through which you will be able to browse through
+existing reports as well as submit new files.
+
+Beware that this is not a full-fledged web interface, which is instead provided
+under the folder ``web/`` as a Django-powered application. You can find more details
+about that under :doc:`web`.
 
 .. _apipy:
 
@@ -117,8 +136,8 @@ use SQLite, MySQL, PostgreSQL and several other SQL database systems.
 
 Cuckoo is designed to be easily integrated in larger solutions and to be fully
 automated. In order to automate analysis submission we suggest to use the REST
-API interface described in :doc:`api`, but in the case you want to write your
-own Python submission script, you can use the ``add_path()`` and ``add_url()`` functions.
+API interface described in :doc:`api`, but in case you want to write your
+own Python submission script, you can also use the ``add_path()`` and ``add_url()`` functions.
 
 .. function:: add_path(file_path[, timeout=0[, package=None[, options=None[, priority=1[, custom=None[, machine=None[, platform=None[, memory=False[, enforce_timeout=False]]]]]]]]])
 
@@ -144,6 +163,8 @@ own Python submission script, you can use the ``add_path()`` and ``add_url()`` f
     :type memory: True or False
     :param enforce_timeout: set to ``True`` to force the executuion for the full timeout
     :type enforce_timeout: True or False
+    :param clock: provide a custom clock time to set in the analysis machine
+    :type clock: string or None
     :rtype: integer
 
     Example usage:
@@ -181,6 +202,8 @@ own Python submission script, you can use the ``add_path()`` and ``add_url()`` f
     :type memory: True or False
     :param enforce_timeout: set to ``True`` to force the executuion for the full timeout
     :type enforce_timeout: True or False
+    :param clock: provide a custom clock time to set in the analysis machine
+    :type clock: string or None
     :rtype: integer
 
 Example Usage:

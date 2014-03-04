@@ -20,7 +20,7 @@ Links
 Join the discussion
 ===================
 
-You can get in contact with Cuckoo's developers and users through the `official
+You can get in contact with the Cuckoo developers and users through the `official
 mailing list`_ kindly provided by `The Honeynet Project`_ or on IRC at the
 official `#cuckoosandbox`_ channel.
 
@@ -31,19 +31,19 @@ go to our `Community`_ website.
 
 Please read the following rules before posting:
 
- * Before posting read the mailing list archives, read the Cuckoo blog, read
-   the documentation and Google about your issue. Stop posting questions that
+ * Before posting, read the mailing list archives, the Cuckoo blog,
+   the documentation and Google about your issue. **DO NOT** post questions that
    have already been answered over and over everywhere.
- * Posting messages saying just like "Doesn't work, help me" are completely
-   useless. If something is not working report the error, paste the logs, paste
-   the config file, paste the information on the virtual machine, paste the
-   results of the troubleshooting, give context. We are not wizards and we
-   don't have the crystal ball.
- * Use a proper title. Stuff like "Doesn't work", "Help me", "Error" is not a
-   proper title.
- * Tend to use `pastebin.com`_ or `pastie.org`_ and similar services to paste
-   logs and configs: make the message more readable.
- * **The community website uses Markdown syntax**. So please read `Markdown`_
+ * Posting messages saying just something like "Doesn't work, help me" are completely
+   useless. If something is not working report the error, paste the logs,
+   the config file, the information on the virtual machine, the
+   results of the troubleshooting, etc. Give context. We are not wizards and we
+   don't have a crystal ball.
+ * Use a proper title. Stuff like "Doesn't work", "Help me", "Error" are not
+   proper titles.
+ * Try to use `pastebin.com`_, `pastie.org`_ or similar services to paste
+   logs and configs: makes the message more readable.
+ * **The community website uses Markdown syntax**. So please read the `Markdown`_
    documentation before posting.
 
 .. _`pastebin.com`: http://pastebin.com/
@@ -61,7 +61,7 @@ and developed mostly during free time by volunteers. If you enjoy it and want to
 see it kept developed and updated, please consider supporting us.
 
 We are always looking for financial support, hardware support and contributions of
-other sort. If you're interested in cooperating with us, feel free to contact us.
+any sort. If you're interested in cooperating, feel free to contact us.
 
 People
 ======
@@ -76,7 +76,7 @@ Active Developers
     +------------------------------+--------------------+-------------------------------------+
     | Name                         | Role               | Contact                             |
     +==============================+====================+=====================================+
-    | Claudio `nex`_ Guarnieri     | Lead Developer     | ``nex at cuckoobox dot org``        |
+    | Claudio `nex`_ Guarnieri     | Lead Developer     | ``nex at nex dot sx``               |
     +------------------------------+--------------------+-------------------------------------+
     | Alessandro `jekil`_ Tanasi   | Developer          | ``alessandro at tanasi dot it``     |
     +------------------------------+--------------------+-------------------------------------+
@@ -88,12 +88,53 @@ Active Developers
 Contributors
 ------------
 
-    * Thorsten Sick
-    * Adam Pridgen
-    * Mike Tu
-    * Loic Jaquemet
-    * Pietro Delsante
-    * JoseMi Holguin
+It's hard at this point to keep track of all individual contributions.
+Following is the list of people who contributed code to our GitHub repository::
+
+    $ git shortlog -s -n
+        814  Nex
+        611  jekil
+        187  rep
+        184  nex
+        125  Jurriaan Bremer
+         70  Ivan Kirillov
+         65  Thorsten Sick
+         24  Pietro Delsante
+         21  Alessandro Tanasi
+         19  Mark Schloesser
+         15  David Maciejak
+         12  Greg Back
+          9  Christopher Schmitt
+          9  Script Kiddie
+          7  Hugh Pearse
+          6  init99
+          4  Adam Pridgen
+          4  Ben Small
+          3  jamu
+          3  z0mbiehunt3r
+          2  Claudio Guarnieri
+          2  Richard Harman
+          2  Thomas Penteker
+          2  bcyrill
+          2  mak
+          2  mt00at
+          1  =
+          1  Allen Swackhamer
+          1  Ben Lyon
+          1  Stephen DiCato
+          1  bladeswords
+          1  chort
+          1  jvoisin
+          1  vacmf
+
+There is a number of friends who provided feedback, ideas and support during the years
+of development of this project, including:
+
+    * Felix Leder
+    * Tillmann Werner
+    * Georg Wicherski
+    * David Watson
+    * Christian Seifert
 
 Supporters
 ==========
@@ -101,15 +142,9 @@ Supporters
     * `The Honeynet Project`_
     * `The Shadowserver Foundation`_
 
-Sponsors
-========
-
-    * `Rapid7`_
-
-.. _`nex`: http://twitter.com/botherder
-.. _`jekil`: http://twitter.com/jekil
-.. _`skier`: http://twitter.com/skier_t
-.. _`rep`: http://twitter.com/repmovsb
+.. _`nex`: https://twitter.com/botherder
+.. _`jekil`: https://twitter.com/jekil
+.. _`skier`: https://twitter.com/skier_t
+.. _`rep`: https://twitter.com/repmovsb
 .. _`The Honeynet Project`: http://www.honeynet.org
 .. _`The Shadowserver Foundation`: http://www.shadowserver.org
-.. _`Rapid7`: http://www.rapid7.com

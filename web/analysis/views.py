@@ -1,4 +1,4 @@
-# Copyright (C) 2010-2013 Cuckoo Sandbox Developers.
+# Copyright (C) 2010-2014 Cuckoo Sandbox Developers.
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
 
@@ -18,7 +18,7 @@ from gridfs import GridFS
 
 sys.path.append(settings.CUCKOO_PATH)
 
-from lib.cuckoo.core.database import Database
+from lib.cuckoo.core.database import Database, TASK_PENDING
 
 results_db = pymongo.connection.Connection(settings.MONGO_HOST, settings.MONGO_PORT).cuckoo
 fs = GridFS(results_db)
@@ -26,8 +26,8 @@ fs = GridFS(results_db)
 @require_safe
 def index(request):
     db = Database()
-    tasks_files = db.list_tasks(limit=50, category="file")
-    tasks_urls = db.list_tasks(limit=50, category="url")
+    tasks_files = db.list_tasks(limit=50, category="file", not_status=TASK_PENDING)
+    tasks_urls = db.list_tasks(limit=50, category="url", not_status=TASK_PENDING)
 
     analyses_files = []
     analyses_urls = []
@@ -36,15 +36,35 @@ def index(request):
         for task in tasks_files:
             new = task.to_dict()
             new["sample"] = db.view_sample(new["sample_id"]).to_dict()
+            if db.view_errors(task.id):
+                new["errors"] = True
 
             analyses_files.append(new)
 
     if tasks_urls:
         for task in tasks_urls:
-            analyses_urls.append(task.to_dict())
+            new = task.to_dict()
+
+            if db.view_errors(task.id):
+                new["errors"] = True
+
+            analyses_urls.append(new)
 
     return render_to_response("analysis/index.html",
                               {"files": analyses_files, "urls": analyses_urls},
+                              context_instance=RequestContext(request))
+
+@require_safe
+def pending(request):
+    db = Database()
+    tasks = db.list_tasks(status=TASK_PENDING)
+
+    pending = []
+    for task in tasks:
+        pending.append(task.to_dict())
+
+    return render_to_response("analysis/pending.html",
+                              {"tasks" : pending},
                               context_instance=RequestContext(request))
 
 @require_safe
@@ -89,6 +109,11 @@ def chunk(request, task_id, pid, pagenum):
 @require_safe
 def report(request, task_id):
     report = results_db.analysis.find_one({"info.id": int(task_id)}, sort=[("_id", pymongo.DESCENDING)])
+
+    if not report:
+        return render_to_response("error.html",
+                                  {"error" : "The specified analysis does not exist"},
+                                  context_instance=RequestContext(request))
 
     return render_to_response("analysis/report.html",
                               {"analysis": report},
@@ -137,6 +162,8 @@ def search(request):
                                            "term": request.POST["search"],
                                            "error": "Search term too short, minimum 3 characters required"},
                                           context_instance=RequestContext(request))
+            # name:foo or name: foo
+            value = value.lstrip()
 
             # Search logic.
             if term == "name":
@@ -158,7 +185,9 @@ def search(request):
             elif term == "ip":
                 records = results_db.analysis.find({"network.hosts": value}).sort([["_id", -1]])
             elif term == "signature":
-                records = results_db.analysis.find({"signatures.description": {"$regex" : value, "$options" : "-1"}}).sort([["_id", -1]])
+                records = results_db.analysis.find({"signatures.description": {"$regex" : value, "$options" : "-i"}}).sort([["_id", -1]])
+            elif term == "url":
+                records = results_db.analysis.find({"target.url": value}).sort([["_id", -1]])
             else:
                 return render_to_response("analysis/search.html",
                                           {"analyses": None,
@@ -186,9 +215,18 @@ def search(request):
         analyses = []
 
         for result in records:
-            new = db.view_task(result["info"]["id"]).to_dict()
+            new = db.view_task(result["info"]["id"])
+
+            if not new:
+                continue
+
+            new = new.to_dict()
+
             if result["info"]["category"] == "file":
-                new["sample"] = db.view_sample(new["sample_id"]).to_dict()
+                if new["sample_id"]:
+                    sample = db.view_sample(new["sample_id"])
+                    if sample:
+                        new["sample"] = sample.to_dict()
 
             analyses.append(new)
 
